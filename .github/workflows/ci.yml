@@ -1,9 +1,12 @@
-name: ci
+name: oracle
 on: [push, pull_request]
 jobs:
-  test:
+  oracle-test:
+    name: oracle (reference only) — test
     runs-on: ubuntu-latest
     steps:
+      - name: oracle notice
+        run: echo "ORACLE job - reference measurement only, not a gate, not a required check, no native build or gate depends on it (AGENTS.md CI exception, JUN-579)."
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
