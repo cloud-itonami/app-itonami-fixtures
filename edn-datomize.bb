@@ -19,7 +19,7 @@
 ;;                                                       (トップレベル全キーに ns を強制)
 ;;   bb edn-datomize.bb wrap-map-keep-ns <path> <ns>  — map 1個のファイルを変換
 ;;                                                       (既に名前空間付きのキーはそのまま保持し、
-;;                                                        裸キーだけ ns を付与。com-etzhayyim-futawa の
+;;                                                        裸キーだけ ns を付与。futawa の
 ;;                                                        ような :register/type 等の慣用的に
 ;;                                                        名前空間付き map 向け。ADR generic transform と
 ;;                                                        同じ規則)
