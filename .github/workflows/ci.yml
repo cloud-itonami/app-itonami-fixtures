@@ -8,6 +8,15 @@ jobs:
       - name: oracle notice
         run: echo "ORACLE job - reference measurement only, not a gate, not a required check, no native build or gate depends on it (AGENTS.md CI exception, JUN-579)."
       - uses: actions/checkout@v4
+      # The JVM cannot read .cljk on its own. The monorepo loader exposes .cljk to the
+      # JVM as .cljc (same sha as the deps.edn coordinates), so this measures the
+      # .cljk sources as they are. Reference measurement only.
+      - uses: actions/checkout@v4
+        with:
+          repository: kotoba-lang/kotoba
+          ref: 73e3c67a02221411c7685c43998df5d5d85e66f3
+          path: oracle-loader
+          sparse-checkout: tools
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -15,5 +24,7 @@ jobs:
       - uses: DeLaGuardo/setup-clojure@13.4
         with:
           cli: latest
-      - run: clojure -M:test
-      - run: clojure -M:lint
+      - name: oracle run (.cljk via cljk_loader)
+        run: >-
+          clojure -Sdeps '{:aliases {:t {:extra-paths ["test"]}}}'
+          -M:t -i oracle-loader/tools/cljk_loader.cljk -m kami.app-fixtures-test
