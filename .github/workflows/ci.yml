@@ -26,5 +26,5 @@ jobs:
           cli: latest
       - name: oracle run (.cljk via cljk_loader)
         run: >-
-          clojure -Sdeps '{:aliases {:t {:extra-paths ["test"]}}}'
+          clojure -Sdeps '{:deps {org.clojure/clojure {:mvn/version "1.12.0"}} :aliases {:t {:extra-paths ["test"]}}}'
           -M:t -i oracle-loader/tools/cljk_loader.cljk -m kami.app-fixtures-test
