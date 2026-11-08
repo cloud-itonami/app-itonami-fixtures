@@ -2,30 +2,27 @@
   "CLJC validation for KAMI app fixture authority."
   (:require [kotoba.lang.edn :as edn]
             [kotoba.lang.text :as str]
-            #?(:clj [clojure.java.io :as io])))
+            [kotoba.io :as io]))
 
 (def catalog-resource "kami/app_fixtures.edn")
 (def app-root-resource "kami/app")
 
-#?(:clj
-   (defn resource-edn [path]
-     (let [resource (io/resource path)]
-       (when-not resource
-         (throw (ex-info "missing app fixture resource" {:path path})))
-       (-> resource slurp edn/read-string))))
+(defn resource-edn [path]
+  (let [resource (io/resource path)]
+    (when-not resource
+      (throw (ex-info "missing app fixture resource" {:path path})))
+    (-> resource slurp edn/read-string)))
 
 ;; catalog-resource is Datomic/Datascript tx-data: a vector of entity maps,
 ;; each with a synthetic :db/id (-1, -2, ...) plus the original
 ;; :kami.fixture/* attrs unchanged (edn-datomize.bb `catalog-vector` mode,
 ;; 2026-07-10). `fixtures` reconstitutes the plain vector-of-maps shape this
 ;; namespace's validators expect by stripping :db/id back off.
-#?(:clj
-   (defn- reconstitute-fixture [entity]
-     (dissoc entity :db/id)))
+(defn- reconstitute-fixture [entity]
+  (dissoc entity :db/id))
 
-#?(:clj
-   (defn fixtures []
-     (mapv reconstitute-fixture (resource-edn catalog-resource))))
+(defn fixtures []
+  (mapv reconstitute-fixture (resource-edn catalog-resource)))
 
 (def required-keys
   #{:kami.fixture/id :kami.fixture/provider-crate :kami.fixture/kind
@@ -113,124 +110,121 @@
 (defn catalog? [fixtures]
   (:valid? (validate-catalog fixtures)))
 
-#?(:clj
-   (defn- local-file [path]
-     (io/file (io/resource app-root-resource) path)))
+;; The JVM answers a classpath resource as a java.net.URL that io/file accepts;
+;; kbb answers a JS URL, so take its path.
+(defn- resource-root [name]
+  (let [r (io/resource name)]
+    #?(:clj r
+       :default (some-> r .-pathname))))
 
-#?(:clj
-   (defn- app-root-dir []
-     (io/file (io/resource app-root-resource))))
+(defn- local-file [path]
+  (io/file (resource-root app-root-resource) path))
 
-#?(:clj
-   (defn- rel-path [root file]
-     (let [root-path (str (.getCanonicalPath root) java.io.File/separator)
-           file-path (.getCanonicalPath file)]
-       (subs file-path (count root-path)))))
+(defn- app-root-dir []
+  (io/file (resource-root app-root-resource)))
 
-#?(:clj
-   (defn authority-source-paths []
-     (let [root (app-root-dir)]
-       (->> (file-seq root)
-            (filter #(.isFile %))
-            (filter #(some (fn [suffix] (str/ends-with? (.getName %) suffix))
-                           [".edn" ".clj"]))
-            (remove #(= "deps.edn" (.getName %)))
-            (map #(rel-path root %))
-            sort
-            vec))))
+(defn- rel-path [root file]
+  (let [root-path (str (io/canonical-path root) "/")
+        file-path (io/canonical-path file)]
+    (subs file-path (count root-path))))
 
-#?(:clj
-   (defn validate-local-files [fixtures]
-     (let [exists? (fn [path] (.exists (local-file path)))
-           parse-edn (fn [path]
-                       (try
-                         (edn/read-string (slurp (local-file path)))
-                         nil
-                         (catch Exception e
-                           (err [:file path] (str "invalid EDN: " (ex-message e))))))
-           errors
-           (apply collect-errors
-                  (for [[index fixture] (map-indexed vector fixtures)
-                        :let [scene (:kami.fixture/scene fixture)
-                              logic (:kami.fixture/logic fixture)
-                              author (:kami.fixture/author fixture)]]
-                    (collect-errors
-                     (when-not (exists? scene)
-                       (err [:kami/app-fixtures index :kami.fixture/scene] "scene file is missing"))
-                     (when-not (exists? logic)
-                       (err [:kami/app-fixtures index :kami.fixture/logic] "logic file is missing"))
-                     (when (and author (not (exists? author)))
-                       (err [:kami/app-fixtures index :kami.fixture/author] "author file is missing"))
-                     (when (exists? scene)
-                       (parse-edn scene)))))]
-       {:valid? (empty? errors) :errors errors})))
+(defn authority-source-paths []
+  (let [root (app-root-dir)]
+    (->> (io/file-seq root)
+         (filter io/file?)
+         (filter #(some (fn [suffix] (str/ends-with? (io/file-name %) suffix))
+                        [".edn" ".cljk" ".cljc"]))
+         (remove #(= "deps.edn" (io/file-name %)))
+         (map #(rel-path root %))
+         sort
+         vec)))
 
-#?(:clj
-   (defn validate-engine-mirror
-     ([fixtures] (validate-engine-mirror fixtures "../kami-engine"))
-     ([fixtures engine-root]
-      (let [local (fn [path] (local-file path))
-            engine (fn [path] (io/file engine-root path))
-            checked-paths (fn [fixture]
-                            (cond-> [(:kami.fixture/scene fixture)
-                                     (:kami.fixture/logic fixture)]
-                              (:kami.fixture/author fixture)
-                              (conj (:kami.fixture/author fixture))))
-            errors
-            (apply collect-errors
-                   (for [[index fixture] (map-indexed vector fixtures)
-                         path (checked-paths fixture)
-                         :let [local-file (local path)
-                               engine-file (engine path)]]
-                     (collect-errors
-                      (when (and (.exists engine-file)
-                                 (not= (slurp local-file) (slurp engine-file)))
-                        (err [:kami/app-fixtures index path]
-                             "engine mirror file differs from app fixture authority")))))]
-        {:valid? (empty? errors) :errors errors}))))
+(defn validate-local-files [fixtures]
+  (let [exists? (fn [path] (io/exists? (local-file path)))
+        parse-edn (fn [path]
+                    (try
+                      (edn/read-string (slurp (local-file path)))
+                      nil
+                      (catch #?(:clj Exception :default :default) e
+                        (err [:file path] (str "invalid EDN: " (ex-message e))))))
+        errors
+        (apply collect-errors
+               (for [[index fixture] (map-indexed vector fixtures)
+                     :let [scene (:kami.fixture/scene fixture)
+                           logic (:kami.fixture/logic fixture)
+                           author (:kami.fixture/author fixture)]]
+                 (collect-errors
+                  (when-not (exists? scene)
+                    (err [:kami/app-fixtures index :kami.fixture/scene] "scene file is missing"))
+                  (when-not (exists? logic)
+                    (err [:kami/app-fixtures index :kami.fixture/logic] "logic file is missing"))
+                  (when (and author (not (exists? author)))
+                    (err [:kami/app-fixtures index :kami.fixture/author] "author file is missing"))
+                  (when (exists? scene)
+                    (parse-edn scene)))))]
+    {:valid? (empty? errors) :errors errors}))
 
-#?(:clj
-   (defn fixture-paths [fixture]
-     (cond-> [(:kami.fixture/scene fixture)
-              (:kami.fixture/logic fixture)]
-       (:kami.fixture/author fixture)
-       (conj (:kami.fixture/author fixture)))))
+(defn validate-engine-mirror
+  ([fixtures] (validate-engine-mirror fixtures "../kami-engine"))
+  ([fixtures engine-root]
+   (let [local (fn [path] (local-file path))
+         engine (fn [path] (io/file engine-root path))
+         checked-paths (fn [fixture]
+                         (cond-> [(:kami.fixture/scene fixture)
+                                  (:kami.fixture/logic fixture)]
+                           (:kami.fixture/author fixture)
+                           (conj (:kami.fixture/author fixture))))
+         errors
+         (apply collect-errors
+                (for [[index fixture] (map-indexed vector fixtures)
+                      path (checked-paths fixture)
+                      :let [local-file (local path)
+                            engine-file (engine path)]]
+                  (collect-errors
+                   (when (and (io/exists? engine-file)
+                              (not= (slurp local-file) (slurp engine-file)))
+                     (err [:kami/app-fixtures index path]
+                          "engine mirror file differs from app fixture authority")))))]
+     {:valid? (empty? errors) :errors errors})))
 
-#?(:clj
-   (defn validate-source-coverage [fixtures]
-     (let [cataloged (set (mapcat fixture-paths fixtures))
-           present (set (authority-source-paths))
-           generated (set (mapcat :kami.fixture/generated fixtures))
-           errors
-           (collect-errors
-            (for [path (sort (remove cataloged present))]
-              (err [:kami/app path] "authority EDN/CLJ file is not cataloged"))
-            (for [path (sort (remove present cataloged))]
-              (err [:kami/app path] "cataloged authority file is missing"))
-            (for [path (sort (filter present generated))]
-              (err [:kami/app path] "generated artifact must not be committed as authority")))]
-       {:valid? (empty? errors) :errors errors})))
+(defn fixture-paths [fixture]
+  (cond-> [(:kami.fixture/scene fixture)
+           (:kami.fixture/logic fixture)]
+    (:kami.fixture/author fixture)
+    (conj (:kami.fixture/author fixture))))
 
-#?(:clj
-   (defn sync-engine-mirror!
-     ([fixtures] (sync-engine-mirror! fixtures "../kami-engine"))
-     ([fixtures engine-root]
-      (doseq [fixture fixtures
-              path (fixture-paths fixture)
-              :let [source (local-file path)
-                    target (io/file engine-root path)]]
-        (io/make-parents target)
-        (spit target (slurp source)))
-      {:synced (count (mapcat fixture-paths fixtures))
-       :engine-root engine-root})))
+(defn validate-source-coverage [fixtures]
+  (let [cataloged (set (mapcat fixture-paths fixtures))
+        present (set (authority-source-paths))
+        generated (set (mapcat :kami.fixture/generated fixtures))
+        errors
+        (collect-errors
+         (for [path (sort (remove cataloged present))]
+           (err [:kami/app path] "authority EDN/CLJ file is not cataloged"))
+         (for [path (sort (remove present cataloged))]
+           (err [:kami/app path] "cataloged authority file is missing"))
+         (for [path (sort (filter present generated))]
+           (err [:kami/app path] "generated artifact must not be committed as authority")))]
+    {:valid? (empty? errors) :errors errors}))
 
-#?(:clj
-   (defn validate-all []
-     (let [fs (fixtures)]
-       {:catalog (validate-catalog fs)
-        :local-files (validate-local-files fs)
-        :source-coverage (validate-source-coverage fs)
-        :engine-mirror (validate-engine-mirror fs)})))
+(defn sync-engine-mirror!
+  ([fixtures] (sync-engine-mirror! fixtures "../kami-engine"))
+  ([fixtures engine-root]
+   (doseq [fixture fixtures
+           path (fixture-paths fixture)
+           :let [source (local-file path)
+                 target (io/file engine-root path)]]
+     (io/make-parents target)
+     (spit target (slurp source)))
+   {:synced (count (mapcat fixture-paths fixtures))
+    :engine-root engine-root}))
+
+(defn validate-all []
+  (let [fs (fixtures)]
+    {:catalog (validate-catalog fs)
+     :local-files (validate-local-files fs)
+     :source-coverage (validate-source-coverage fs)
+     :engine-mirror (validate-engine-mirror fs)}))
 
 #?(:clj
    (defn- arg-value [args k default]
