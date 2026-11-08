@@ -9,7 +9,7 @@
 - Job names start with `oracle-` and each job prints an "ORACLE job" notice.
 - It is **not a required check**. No native build, gate or packaging path depends on it, and
   a native result must never silently fall back to it.
-- There is no Amu selfhost native gate for this repo yet. That is **blocked**, tracked in JUN-1007.
+- An Amu selfhost native gate is **not required** for this repo (owner decision 2026-11-07). It is not blocked on one either; add a native gate only if and when it is wanted.
 - The job runs `kami.app-fixtures-test` through the monorepo `tools/cljk_loader.cljk` (pinned to the
   same sha as `deps.edn`), which exposes `.cljk` to the JVM as `.cljc`. Local result 2026-11-08
   (OpenJDK 21): 8 tests / 26 assertions, 0 failures, matching kbb. `clojure -M:test` alone cannot read
