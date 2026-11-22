@@ -8,6 +8,28 @@ jobs:
       - name: oracle notice
         run: echo "ORACLE job - reference measurement only, not a gate, not a required check, no native build or gate depends on it (AGENTS.md CI exception, JUN-579)."
       - uses: actions/checkout@v4
+      - name: check no deleted-repo pins remain
+        run: |
+          python3 - <<'EOF'
+          import re, sys
+          txt = open('deps.edn').read()
+          bad = []
+          for i, ln in enumerate(txt.split('\n'), 1):
+              for m in re.finditer(r':git/url\s+"(https://github\.com/kotoba-lang/([a-zA-Z0-9_.\-]+?)(\.git)?)"', ln):
+                  if m.group(2) not in ('kotoba', 'amu'):
+                      bad.append('%d: dead repo URL %s' % (i, m.group(1)))
+          for m in re.finditer(r"((?:io\.github\.kotoba-lang|kotoba-lang|gftd)/[a-zA-Z0-9_.\-]+)\s*\n?\s*(\{[^{}]*\})", txt):
+              key, block = m.group(1), m.group(2)
+              if key in ("io.github.kotoba-lang/amu", "kotoba-lang/amu"):
+                  continue
+              if ":git/url" not in block and re.search(r":git/sha\s+\"[0-9a-f]+\"|:sha\s+\"[0-9a-f]+\"", block):
+                  bad.append('%d: bare git sha without :git/url: %s' % (txt[:m.start()].count("\n") + 1, key))
+          if bad:
+              print("deleted-repo pins remain:")
+              [print("  " + b) for b in bad]
+              sys.exit(1)
+          print("pins OK: no deleted kotoba-lang repo URLs or bare shas")
+          EOF
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
